@@ -1,0 +1,8 @@
+[submodule "external/tmux_lib"]
+	path = external/tmux_lib
+	url = https://github.com/matkatmusic/tmux_lib.git
+	branch = develop
+[submodule "external/claude_plugin_lib"]
+	path = external/claude_plugin_lib
+	url = https://github.com/matkatmusic/claude_plugin_lib.git
+	branch = develop

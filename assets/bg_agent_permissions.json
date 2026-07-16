@@ -1,0 +1,128 @@
+{
+  "_doc": "Background-agent permission bundles for /jot, /todo, /plate, /debate. Each <skill>_permissions block is per-worker (claude/gemini/codex). Claude entries are arrays of Claude Code permission rules; template variables ${REPO_ROOT}, ${HOME}, ${CWD} are substituted by bg_permissions_lib.py at load time, and ${REPO_ROOT} is lstripped of its leading slash so the rule slots into a '//${REPO_ROOT}/...' form. Gemini entries map to --allowed-tools (comma-joined). Codex entries map to -a/--sandbox flags. Per-invocation dynamic paths are appended by the calling Python code via extra_allow. The installed runtime copy lives at ${CLAUDE_PLUGIN_DATA}/bg_agent_permissions.local.json - edit that file to customise; changes take effect on the next /jot, /todo, /debate, or /plate invocation. Do NOT edit this bundled default - it will be overwritten on plugin upgrade.",
+  "jot_permissions": {
+    "claude": {
+      "allow": [
+        "Read(**)",
+        "Read(${HOME}/.claude/projects/**)",
+        "Write(//${REPO_ROOT}/Todos/**)",
+        "Edit(//${REPO_ROOT}/Todos/**)",
+        "Bash(grep:*)", "Bash(rtk grep:*)",
+        "Bash(head:*)", "Bash(rtk head:*)",
+        "Bash(tail:*)", "Bash(rtk tail:*)",
+        "Bash(wc:*)",   "Bash(rtk wc:*)",
+        "Bash(cut:*)",  "Bash(rtk cut:*)",
+        "Bash(awk:*)",  "Bash(rtk awk:*)",
+        "Bash(sed:*)",  "Bash(rtk sed:*)",
+        "Bash(sort:*)", "Bash(rtk sort:*)",
+        "Bash(uniq:*)", "Bash(rtk uniq:*)",
+        "Bash(tr:*)",   "Bash(rtk tr:*)",
+        "Bash(cat:*)",  "Bash(rtk cat:*)"
+      ]
+    }
+  },
+  "todo_permissions": {
+    "claude": {
+      "allow": [
+        "Read(//${REPO_ROOT}/Todos/**)",
+        "Write(//${REPO_ROOT}/Todos/**)",
+        "Edit(//${REPO_ROOT}/Todos/**)",
+        "Read(//${REPO_ROOT}/.claude/plans/**)",
+        "Read(${HOME}/.claude/projects/**)",
+        "Bash(grep:*)", "Bash(rtk grep:*)",
+        "Bash(head:*)", "Bash(rtk head:*)",
+        "Bash(tail:*)", "Bash(rtk tail:*)",
+        "Bash(wc:*)",   "Bash(rtk wc:*)",
+        "Bash(cut:*)",  "Bash(rtk cut:*)",
+        "Bash(awk:*)",  "Bash(rtk awk:*)",
+        "Bash(sed:*)",  "Bash(rtk sed:*)",
+        "Bash(sort:*)", "Bash(rtk sort:*)",
+        "Bash(uniq:*)", "Bash(rtk uniq:*)",
+        "Bash(tr:*)",   "Bash(rtk tr:*)",
+        "Bash(cat:*)",  "Bash(rtk cat:*)"
+      ]
+    }
+  },
+  "plate_permissions": {
+    "claude": {
+      "allow": [
+        "Bash(git log:*)",          "Bash(rtk git log:*)",
+        "Bash(git diff:*)",         "Bash(rtk git diff:*)",
+        "Bash(git show:*)",         "Bash(rtk git show:*)",
+        "Bash(git rev-parse:*)",    "Bash(rtk git rev-parse:*)",
+        "Bash(git rev-list:*)",     "Bash(rtk git rev-list:*)",
+        "Bash(git for-each-ref:*)", "Bash(rtk git for-each-ref:*)",
+        "Bash(git ls-tree:*)",      "Bash(rtk git ls-tree:*)",
+        "Bash(git ls-files:*)",     "Bash(rtk git ls-files:*)",
+        "Bash(git merge-base:*)",   "Bash(rtk git merge-base:*)",
+        "Bash(git status:*)",       "Bash(rtk git status:*)",
+        "Bash(git cat-file:*)",     "Bash(rtk git cat-file:*)",
+        "Bash(grep:*)", "Bash(rtk grep:*)",
+        "Bash(head:*)", "Bash(rtk head:*)",
+        "Bash(tail:*)", "Bash(rtk tail:*)",
+        "Bash(wc:*)",   "Bash(rtk wc:*)",
+        "Bash(cut:*)",  "Bash(rtk cut:*)",
+        "Bash(awk:*)",  "Bash(rtk awk:*)",
+        "Bash(sed:*)",  "Bash(rtk sed:*)",
+        "Bash(sort:*)", "Bash(rtk sort:*)",
+        "Bash(uniq:*)", "Bash(rtk uniq:*)",
+        "Bash(tr:*)",   "Bash(rtk tr:*)",
+        "Bash(cat:*)",  "Bash(rtk cat:*)",
+        "Bash(jq:*)",   "Bash(rtk jq:*)"
+      ]
+    }
+  },
+  "debate_permissions": {
+    "claude": {
+      "allow": [
+        "Read(**)",
+        "Write(//${REPO_ROOT}/Debates/**)",
+        "Edit(//${REPO_ROOT}/Debates/**)",
+        "Bash(ls:*)",
+        "Bash(grep:*)", "Bash(rtk grep:*)",
+        "Bash(head:*)", "Bash(rtk head:*)",
+        "Bash(tail:*)", "Bash(rtk tail:*)",
+        "Bash(cat:*)",  "Bash(rtk cat:*)"
+      ]
+    },
+    "gemini": {
+      "allowed_tools": ["read_file", "write_file", "run_shell_command(ls)"]
+    },
+    "codex": {
+      "approval": "never",
+      "sandbox_mode": "workspace-write",
+      "extra_flags": []
+    }
+  },
+  "run_scenario_permissions": {
+    "claude": {
+      "allow": [
+        "Read(**)",
+        "Write(//${REPO_ROOT}/**)",
+        "Edit(//${REPO_ROOT}/**)",
+        "Read(${HOME}/.claude/projects/**)",
+        "Read(~/.claude/guides/**)",
+        "Bash(grep:*)", "Bash(rtk grep:*)",
+        "Bash(head:*)", "Bash(rtk head:*)",
+        "Bash(tail:*)", "Bash(rtk tail:*)",
+        "Bash(wc:*)",   "Bash(rtk wc:*)",
+        "Bash(cut:*)",  "Bash(rtk cut:*)",
+        "Bash(awk:*)",  "Bash(rtk awk:*)",
+        "Bash(sed:*)",  "Bash(rtk sed:*)",
+        "Bash(sort:*)", "Bash(rtk sort:*)",
+        "Bash(uniq:*)", "Bash(rtk uniq:*)",
+        "Bash(tr:*)",   "Bash(rtk tr:*)",
+        "Bash(cat:*)",  "Bash(rtk cat:*)",
+        "Bash(ls:*)",   "Bash(rtk ls:*)",
+        "Bash(find:*)", "Bash(rtk find:*)",
+        "Bash(mkdir:*)", "Bash(mkdir -p:*)", "Bash(rtk mkdir:*)",
+        "Bash(rtk pytest:*)",
+        "Bash(mv:*)", "Bash(cp:*)",
+        "Bash(git init)",
+        "Bash(git log:*)", "Bash(rtk git log:*)",
+        "Bash(rtk ls:*)", "Bash(rtk read:*)",
+        "Bash(python -m pytest:*)", "Bash(python3 -m pytest:*)"
+      ]
+    }
+  }
+}

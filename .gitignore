@@ -1,0 +1,4 @@
+.plate/
+__pycache__/
+.pytest_cache/
+.plugin_data/

@@ -1,0 +1,17 @@
+{
+  "name": "jfredToolsPlugin",
+  "version": "0.1.0",
+  "description": "Standalone home for '/run-scenario' (drive a Claude agent through a scenario file in tmux) and '/sync-jsonl-projects' (back up Claude Code session JSONL files and file-history), usable from any directory via --plugin-dir.",
+  "author": {
+    "name": "Matkat Music LLC"
+  },
+  "repository": "https://github.com/matkatmusic/jfredToolsPlugin",
+  "keywords": [
+    "run-scenario",
+    "sync-jsonl-projects",
+    "tmux",
+    "jfred",
+    "scenario",
+    "backup"
+  ]
+}
