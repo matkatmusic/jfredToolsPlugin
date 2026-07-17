@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/jfred_tools_dispatcher.py"
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/jfred_tools_dispatcher.py\""
           }
         ]
       }
