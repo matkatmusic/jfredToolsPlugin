@@ -1,0 +1,30 @@
+{
+  "name": "matkatmusic-jfred-tools",
+  "owner": {
+    "name": "Matkat Music LLC"
+  },
+  "metadata": {
+    "description": "matkatmusic/jfredToolsPlugin — /run-scenario (drive a Claude agent through a scenario file in tmux) and /sync-jsonl-projects (back up session JSONL files), usable from any directory",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "jfredToolsPlugin",
+      "source": "./",
+      "description": "Standalone home for '/run-scenario' (drive a Claude agent through a scenario file in tmux) and '/sync-jsonl-projects' (back up Claude Code session JSONL files and file-history), usable from any directory via --plugin-dir.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Matkat Music LLC"
+      },
+      "category": "development",
+      "keywords": [
+        "run-scenario",
+        "sync-jsonl-projects",
+        "tmux",
+        "jfred",
+        "scenario",
+        "backup"
+      ]
+    }
+  ]
+}
