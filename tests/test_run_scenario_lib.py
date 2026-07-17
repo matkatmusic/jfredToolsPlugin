@@ -877,7 +877,7 @@ def test_executeSpawnConcurrent_doesNotKillPriorSession(tmp_path: Path, monkeypa
     progress_file.write_text("- [ ] 1. SpawnNewAgent: a2\n")
     monkeypatch.setattr(
         run_scenario_lib, "_spawnClaudeInTmux",
-        lambda session, cwd, settings, model="": f"{session}:main",
+        lambda session, *a, **k: f"{session}:main",
     )
 
     steps = [{"action": "spawnconcurrent", "payload": "a2", "target": None, "step_num": 1}]
@@ -906,7 +906,7 @@ def test_executeSteps_routesSayToTargetedAgentPane(tmp_path: Path, monkeypatch: 
     progress_file.write_text("x\n")
     monkeypatch.setattr(
         run_scenario_lib, "_spawnClaudeInTmux",
-        lambda session, cwd, settings, model="": f"{session}:main",
+        lambda session, *a, **k: f"{session}:main",
     )
 
     steps = [
@@ -937,7 +937,7 @@ def test_executeSteps_recordTargetedAgentCapturesItsTranscript(tmp_path: Path, m
     progress_file.write_text("x\n")
     monkeypatch.setattr(
         run_scenario_lib, "_spawnClaudeInTmux",
-        lambda session, cwd, settings, model="": f"{session}:main",
+        lambda session, *a, **k: f"{session}:main",
     )
 
     # Each Say leaves a distinct transcript path in jsonl_path.txt, as the real
@@ -980,7 +980,7 @@ def test_executeSteps_killsRemainingAgentSessionsAtEnd(tmp_path: Path, monkeypat
     progress_file.write_text("x\n")
     monkeypatch.setattr(
         run_scenario_lib, "_spawnClaudeInTmux",
-        lambda session, cwd, settings, model="": f"{session}:main",
+        lambda session, *a, **k: f"{session}:main",
     )
 
     steps = [{"action": "spawnconcurrent", "payload": "a2", "target": None, "step_num": 1}]
@@ -1008,7 +1008,7 @@ def test_executeSteps_excludeJsonlOmitsPriorAgentTranscript(tmp_path: Path, monk
     progress_file.write_text("x\n")
     monkeypatch.setattr(
         run_scenario_lib, "_spawnClaudeInTmux",
-        lambda session, cwd, settings, model="": f"{session}:main",
+        lambda session, *a, **k: f"{session}:main",
     )
 
     steps = [{"action": "spawn", "payload": "--excludeJSONL", "target": None, "step_num": 1}]
@@ -1209,10 +1209,10 @@ def test_snapshotStep_copies_files_and_writes_manifest(tmp_path: Path):
 # ── runScenario_executeSteps per-step snapshots ──────────────────────
 
 
-def test_executeSteps_snapshots_only_on_code_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # Scenario: the executor snapshots a step ONLY when it changed code on disk.
-    # Conversational Say steps ("hello"/"bye") touch no files (the fake agent writes
-    # nothing), so only the Edit step — which mutates foo.py — is captured.
+def test_executeSteps_snapshots_every_step(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Scenario: the executor snapshots after EVERY step — even conversational Says
+    # that touch no files — so the engine gets a complete timeline and audit is a
+    # simple count comparison.
     tracking = _installExecutorDoubles(monkeypatch, tmp_path)
     signal_dir = tmp_path / "signal"
     signal_dir.mkdir()
@@ -1242,10 +1242,10 @@ def test_executeSteps_snapshots_only_on_code_change(tmp_path: Path, monkeypatch:
     )
 
     assert result["completed"] is True
-    # Only the code-changing edit step is captured; the chatter Says are not.
-    assert result["step_states"] == ["step-002"]
-    assert not (work / ".step_states" / "step-001").exists()
-    assert not (work / ".step_states" / "step-003").exists()
+    # Every step is captured, chatter Says included.
+    assert result["step_states"] == ["step-001", "step-002", "step-003"]
+    assert (work / ".step_states" / "step-001").is_dir()
+    assert (work / ".step_states" / "step-003").is_dir()
     # The captured snapshot is the POST-edit state.
     import json as _json
     edit_manifest = _json.loads(
@@ -1255,9 +1255,9 @@ def test_executeSteps_snapshots_only_on_code_change(tmp_path: Path, monkeypatch:
     assert (work / ".step_states" / "step-002" / "foo.py").read_text().startswith("# c\n")
 
 
-def test_executeSteps_rewind_does_not_snapshot_even_when_tree_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # Scenario: a /rewind reverts the tree (a change), but the engine can't attribute
-    # a step number to a revert, so rewind never produces a step snapshot.
+def test_executeSteps_rewind_snapshots_reverted_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Scenario: a /rewind reverts the tree; under the snapshot-every-step contract
+    # the reverted state is captured like any other step.
     tracking = _installExecutorDoubles(monkeypatch, tmp_path)
     signal_dir = tmp_path / "signal"
     signal_dir.mkdir()
@@ -1282,8 +1282,8 @@ def test_executeSteps_rewind_does_not_snapshot_even_when_tree_changes(tmp_path: 
     )
 
     assert result["completed"] is True
-    assert result["step_states"] == []
-    assert not (work / ".step_states").exists()
+    assert result["step_states"] == ["step-001"]
+    assert (work / ".step_states" / "step-001" / "foo.py").read_text() == "reverted\n"
 
 
 # ── runScenario_launch .gitignore ────────────────────────────────────
@@ -1311,8 +1311,10 @@ def test_launch_writes_gitignore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 # ── _sendPonytailPrimer ──────────────────────────────────────────────
 
 
-def test_primeSpawnedAgent_pins_model_then_loads_ponytail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # Scenario: with a model, the primer first sends "/model <id>" then "/ponytail ultra".
+def test_primeSpawnedAgent_sends_requested_ponytail_level(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Scenario: the primer sends "/ponytail <level>" for the requested level, and
+    # sends nothing at all for level "none". Model is pinned via --model at launch,
+    # never by the primer.
     tracking = _installExecutorDoubles(monkeypatch, tmp_path)
     signal_dir = tmp_path / "signal"
     signal_dir.mkdir()
@@ -1320,12 +1322,11 @@ def test_primeSpawnedAgent_pins_model_then_loads_ponytail(tmp_path: Path, monkey
 
     from common.scripts.run_scenario_lib import _primeSpawnedAgent
 
-    _primeSpawnedAgent("test:main", str(signal_dir), "claude-opus-4-6[1m]")
+    _primeSpawnedAgent("test:main", str(signal_dir), "full")
+    assert tracking["sent"] == ["/ponytail full"]
 
-    assert "/model claude-opus-4-6[1m]" in tracking["sent"]
-    assert "/ponytail ultra" in tracking["sent"]
-    # Model is pinned before the ponytail turn.
-    assert tracking["sent"].index("/model claude-opus-4-6[1m]") < tracking["sent"].index("/ponytail ultra")
+    _primeSpawnedAgent("test:main", str(signal_dir), "none")
+    assert tracking["sent"] == ["/ponytail full"]
 
 
 def test_primeSpawnedAgent_skips_model_when_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
