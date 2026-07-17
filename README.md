@@ -49,6 +49,15 @@ This applies to clean-environment captures too: a capture run under a fresh
 `CLAUDE_CONFIG_DIR` must still install the context-mode plugin before
 `/run-scenario` is invoked, or the MCP steps above will not be executable.
 
+## Monitor spawned panes for permission prompts
+
+The backgrounded agent tmux panes must be watched for permission asks. The
+spawned agent's allowlist (`run_scenario_permissions` in
+`assets/bg_agent_permissions.json`) is deliberately narrow — e.g. it covers
+`python3 -m pytest` but not bare `python3 <script>` — so a scenario step can
+stall on a permission dialog until someone approves it in the pane. The driver
+only auto-approves Read dialogs; anything else waits on a human.
+
 ## Tests
 
 ```sh
