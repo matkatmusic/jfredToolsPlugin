@@ -31,6 +31,24 @@ JFRED's `install.sh` can add a `claude()` wrapper to your `~/.zshrc` that passes
 flag automatically (it asks before touching `~/.zshrc`). The wrapper bakes in the
 absolute path of the clone it was installed from, so re-run it if the clone moves.
 
+## Scenario prerequisite: the context-mode plugin
+
+Many scenario files instruct the driven agent to run scripts through the
+context-mode MCP sandbox (`ctx_execute` / `ctx_batch_execute`). If the
+context-mode plugin is not installed in the capture environment, the agent
+cannot follow those steps and the captured run diverges from the scenario.
+
+Scenarios that require it (any scenario whose steps invoke `ctx_execute` or
+`ctx_batch_execute` — verify with
+`grep -l 'ctx_execute\|ctx_batch_execute' scenarios/*.txt`):
+
+s32, s36, s37, s38, s42, s43, s44, s74, s75, s80, s83, s84, s85,
+s87-demo-composite.
+
+This applies to clean-environment captures too: a capture run under a fresh
+`CLAUDE_CONFIG_DIR` must still install the context-mode plugin before
+`/run-scenario` is invoked, or the MCP steps above will not be executable.
+
 ## Tests
 
 ```sh
