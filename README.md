@@ -1,12 +1,16 @@
 # jfredToolsPlugin
 
-A Claude Code plugin carrying two commands, usable from any directory:
+A Claude Code plugin carrying four commands, usable from any directory:
 
 - `/run-scenario <scenario.txt>` — spawn a Claude agent in a named tmux session and
   drive it through a scenario file line-by-line (prompts, file edits, rewinds,
   completion signaling).
 - `/sync-jsonl-projects [--only <path|list.txt> | --all <dest> | --undo] [--dry-run]` —
   sync Claude Code session JSONL files and file-history to a local backup.
+- `/plan-scenario <N>` — plan an engine handler for numbered scenario N from
+  `templates/Plan_template.md`.
+- `/impl-scenario <N>` — implement the plan for numbered scenario N from
+  `templates/Impl_template.md`.
 
 ## Setup
 
