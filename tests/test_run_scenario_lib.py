@@ -1374,3 +1374,109 @@ def test_launch_first_message_is_ponytail(tmp_path: Path, monkeypatch: pytest.Mo
 
     send_calls = [c for c in calls if c[0] == "send"]
     assert any("/ponytail ultra" in c[1] for c in send_calls)
+
+
+# ── Named fixed workspace roots (task 169) ───────────────────────────
+
+
+def test_parser_collects_root_header_lines(tmp_path: Path):
+    # Scenario: header declares two named roots; parser returns them in order, names lowered.
+    scenario = tmp_path / "roots.txt"
+    scenario.write_text(
+        "session: s\nmodel: m\nponytail: none\n"
+        "root: work1 = /tmp/jfred-roots/a\n"
+        "Root: Work2 = ~/jfred-roots/b\n"
+        "---\n"
+        "- [ ] 1. Say: `hi`\n"
+    )
+    from common.scripts.run_scenario_lib import runScenario_convertTxtToJson
+
+    parsed = runScenario_convertTxtToJson(str(scenario))
+
+    assert parsed["roots"] == [
+        {"name": "work1", "path": "/tmp/jfred-roots/a"},
+        {"name": "work2", "path": "~/jfred-roots/b"},
+    ]
+
+
+def test_parser_strips_in_root_from_spawn_payloads_only(tmp_path: Path):
+    # Scenario: spawn steps carry `in <root>`; Say payloads containing " in " stay intact.
+    scenario = tmp_path / "roots.txt"
+    scenario.write_text(
+        "session: s\nroot: work2 = /tmp/jfred-roots/b\n---\n"
+        "- [ ] 1. EndCurrentAgentAndSpawnNewAgent: in work2\n"
+        "- [ ] 2. SpawnNewAgent: bob in work2\n"
+        "- [ ] 3. Say: `stay in work2`\n"
+    )
+    from common.scripts.run_scenario_lib import runScenario_convertTxtToJson
+
+    steps = runScenario_convertTxtToJson(str(scenario))["steps"]
+
+    assert steps[0]["action"] == "spawn"
+    assert steps[0]["payload"] == ""
+    assert steps[0]["root"] == "work2"
+    assert steps[1]["payload"] == "bob"
+    assert steps[1]["root"] == "work2"
+    assert steps[2]["payload"] == "stay in work2"
+    assert steps[2]["root"] is None
+
+
+def test_splitSpawnRoot_variants():
+    from common.scripts.run_scenario_lib import runScenario_splitSpawnRoot
+
+    assert runScenario_splitSpawnRoot("in work2") == ("", "work2")
+    assert runScenario_splitSpawnRoot("bob in work2") == ("bob", "work2")
+    assert runScenario_splitSpawnRoot("--excludeJSONL in Work2") == ("--excludeJSONL", "work2")
+    assert runScenario_splitSpawnRoot("bob") == ("bob", None)
+    assert runScenario_splitSpawnRoot("") == ("", None)
+
+
+def test_createFixedRoot_creates_marker_and_seeds(tmp_path: Path):
+    from common.scripts.run_scenario_lib import runScenario_createFixedRoot
+
+    root = tmp_path / "rootA"
+    result = runScenario_createFixedRoot(str(root))
+
+    assert Path(result) == root
+    assert (root / ".run-scenario-root").is_file()
+    assert (root / "conftest.py").is_file()
+    assert (root / "tests" / "conftest.py").is_file()
+    assert ".run-scenario-root" in (root / ".gitignore").read_text()
+
+
+def test_createFixedRoot_resets_a_marked_root(tmp_path: Path):
+    # Scenario: re-running a scenario resets its fixed roots to a clean state.
+    from common.scripts.run_scenario_lib import runScenario_createFixedRoot
+
+    root = tmp_path / "rootA"
+    runScenario_createFixedRoot(str(root))
+    (root / "leftover.txt").write_text("old run")
+
+    runScenario_createFixedRoot(str(root))
+
+    assert not (root / "leftover.txt").exists()
+
+
+def test_createFixedRoot_refuses_unmarked_nonempty_dir(tmp_path: Path):
+    # Scenario: a typo'd root path pointing at real user data must never be wiped.
+    from common.scripts.run_scenario_lib import runScenario_createFixedRoot
+
+    root = tmp_path / "precious"
+    root.mkdir()
+    (root / "data.txt").write_text("keep me")
+
+    with pytest.raises(ValueError):
+        runScenario_createFixedRoot(str(root))
+
+    assert (root / "data.txt").read_text() == "keep me"
+
+
+def test_resolveSpawnRoot_resolves_declared_and_rejects_unknown():
+    from common.scripts.run_scenario_lib import _resolveSpawnRoot
+
+    roots_by_name = {"work2": "/tmp/w2"}
+
+    assert _resolveSpawnRoot({"root": "work2", "step_num": 3}, roots_by_name, "/tmp/w1") == "/tmp/w2"
+    assert _resolveSpawnRoot({"root": None, "step_num": 3}, roots_by_name, "/tmp/w1") == "/tmp/w1"
+    with pytest.raises(ValueError):
+        _resolveSpawnRoot({"root": "nope", "step_num": 4}, roots_by_name, "/tmp/w1")

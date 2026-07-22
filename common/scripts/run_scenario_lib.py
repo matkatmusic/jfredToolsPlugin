@@ -218,6 +218,56 @@ def runScenario_main() -> int:
 # ── Launcher ─────────────────────────────────────────────────────────
 
 
+def _seedWorkspaceRoot(root_dir: str) -> None:
+    """Seed one workspace root with the runner support files every root needs.
+
+    conftest.py at root and tests/ so pytest can import modules from the root
+    without needing PYTHONPATH=. The .gitignore keeps runner snapshot folders
+    (and itself, and the fixed-root marker) out of `git add -A` in git-baseline
+    scenarios, keeping committed trees clean of runner artifacts.
+    """
+    conftest_content = (
+        "import sys, pathlib\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))\n"
+    )
+    (Path(root_dir) / "conftest.py").write_text(conftest_content)
+    tests_dir = Path(root_dir) / "tests"
+    tests_dir.mkdir(exist_ok=True)
+    (tests_dir / "conftest.py").write_text(conftest_content)
+    (Path(root_dir) / ".gitignore").write_text(
+        ".gitignore\n.run-scenario-root\n.step_states/\n.abandoned_branches/\n"
+    )
+
+
+def runScenario_createFixedRoot(root_path: str) -> str:
+    """Create (or reset) one declared fixed workspace root; seed it; return its path.
+
+    Fixed roots are created FRESH at launch and then reused across every session of
+    the run. SAFETY: an existing non-empty directory is reset only when it carries the
+    `.run-scenario-root` marker from a previous run — a typo'd path in a scenario
+    header must never delete unrelated data.
+    """
+    import shutil
+
+    root = Path(root_path).expanduser()
+    marker = root / ".run-scenario-root"
+    if root.exists() and not root.is_dir():
+        raise ValueError(f"run-scenario: fixed root {root} exists and is not a directory")
+    if root.is_dir():
+        has_entries = any(root.iterdir())
+        if has_entries and not marker.is_file():
+            raise ValueError(
+                f"run-scenario: fixed root {root} is non-empty and has no "
+                f"{marker.name} marker — refusing to reset it"
+            )
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
+    marker.write_text(str(time.time()))
+    _seedWorkspaceRoot(str(root))
+    return str(root)
+
+
 def runScenario_launch(
     session_name: str,
     plugin_root: str,
@@ -234,29 +284,20 @@ def runScenario_launch(
     from datetime import datetime
     import shutil
 
-    # Create the working tmpdir — all agent work happens here.
-    tmpdir = tempfile.mkdtemp(prefix="run-scenario.")
+    # Create the working root(s) — all agent work happens in them. Declared fixed roots
+    # (scenario header `root:` lines, task 169) are created fresh and reused across every
+    # session of this run; the FIRST is primary (initial agent cwd + shared signal dir).
+    # No declaration → a fresh random tmpdir, exactly as before.
+    declared_roots = runScenario_parseScenario(scenario_file).get("roots") or []
+    if declared_roots:
+        tmpdir = runScenario_createFixedRoot(declared_roots[0]["path"])
+        for extra_root in declared_roots[1:]:
+            runScenario_createFixedRoot(extra_root["path"])
+    else:
+        tmpdir = tempfile.mkdtemp(prefix="run-scenario.")
+        _seedWorkspaceRoot(tmpdir)
     cwd = tmpdir
     signal_dir = tmpdir
-
-    # Add conftest.py at root and tests/ so pytest can import modules
-    # from the tmpdir root without needing PYTHONPATH=.
-    conftest_content = (
-        "import sys, pathlib\n"
-        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
-        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))\n"
-    )
-    (Path(tmpdir) / "conftest.py").write_text(conftest_content)
-    tests_dir = Path(tmpdir) / "tests"
-    tests_dir.mkdir(exist_ok=True)
-    (tests_dir / "conftest.py").write_text(conftest_content)
-
-    # Keep runner snapshot folders out of `git add -A` in git-baseline scenarios.
-    # `.gitignore` lists itself so it isn't staged either, keeping committed trees
-    # clean of runner artifacts (matching what the reconstruction engine sees).
-    (Path(tmpdir) / ".gitignore").write_text(
-        ".gitignore\n.step_states/\n.abandoned_branches/\n"
-    )
 
     # Create timestamped progress copy in an 'executed' subdirectory.
     src = Path(scenario_file)
@@ -370,6 +411,17 @@ _ACTION_ALIASES = {
     "spawnnewagent": "spawnconcurrent",
 }
 
+# Trailing `in <rootName>` on a spawn payload selects a declared workspace root (task 169).
+_SPAWN_ROOT_RE = re.compile(r"^(.*?)\s*\bin\s+(\w+)\s*$", re.IGNORECASE)
+
+
+def runScenario_splitSpawnRoot(payload: str) -> tuple:
+    """Split a spawn payload into (payload_without_root, root_name_or_None)."""
+    m = _SPAWN_ROOT_RE.match(payload.strip())
+    if not m:
+        return payload.strip(), None
+    return m.group(1).strip(), m.group(2).lower()
+
 
 def runScenario_convertTxtToJson(txt_path: str) -> dict:
     """Convert a .txt scenario file to a JSON-serializable dict."""
@@ -379,6 +431,7 @@ def runScenario_convertTxtToJson(txt_path: str) -> dict:
     session = ""
     model = ""
     ponytail = ""
+    roots = []
     if len(parts) >= 1:
         for line in parts[0].splitlines():
             stripped = line.strip()
@@ -389,6 +442,13 @@ def runScenario_convertTxtToJson(txt_path: str) -> dict:
                 model = stripped[len("model:"):].strip()
             elif low.startswith("ponytail:"):
                 ponytail = stripped[len("ponytail:"):].strip()
+            elif low.startswith("root:"):
+                # Named fixed workspace root: `root: <name> = <path>` (task 169). The FIRST
+                # declared root is primary (initial agent cwd + shared signal dir).
+                root_decl = stripped[len("root:"):].strip()
+                if "=" in root_decl:
+                    root_name, root_path = root_decl.split("=", 1)
+                    roots.append({"name": root_name.strip().lower(), "path": root_path.strip()})
 
     steps = []
     body = parts[1] if len(parts) > 1 else parts[0]
@@ -431,14 +491,21 @@ def runScenario_convertTxtToJson(txt_path: str) -> dict:
         else:
             payload = payload_raw
 
+        # Spawn steps may pick a declared root with a trailing `in <name>` (task 169);
+        # strip it here so payload semantics (agent name, --excludeJSONL) stay clean.
+        step_root = None
+        if action in ("spawn", "spawnconcurrent"):
+            payload, step_root = runScenario_splitSpawnRoot(payload)
+
         steps.append({
             "action": action,
             "payload": payload,
             "target": agent_target,
             "step_num": step_num,
+            "root": step_root,
         })
 
-    return {"session": session, "model": model, "ponytail": ponytail, "steps": steps}
+    return {"session": session, "model": model, "ponytail": ponytail, "roots": roots, "steps": steps}
 
 
 def runScenario_saveTxtAsJson(txt_path: str) -> str:
@@ -571,6 +638,7 @@ def _executeRewind(pane_target: str, payload: str) -> None:
 # snapshots or the runner-injected gitignore.
 _SNAPSHOT_EXCLUDE = {
     ".git", ".abandoned_branches", ".step_states", ".gitignore",
+    ".run-scenario-root",
     "hooks.json", "settings.json",
     "block-compound.sh", "conftest.py", "ready", "done", "jsonl_path.txt",
 }
@@ -826,8 +894,13 @@ def _primeSpawnedAgent(pane_target: str, signal_dir: str, ponytail: str = "") ->
     _mark("done signal received")
 
 
-def _spawnClaudeInTmux(session_name: str, cwd: str, settings_file: str, model: str = "", ponytail: str = "") -> str:
-    """Start a fresh Claude tmux session in cwd reusing the on-disk settings; return pane_target."""
+def _spawnClaudeInTmux(session_name: str, cwd: str, settings_file: str, model: str = "", ponytail: str = "", signal_dir: str = "") -> str:
+    """Start a fresh Claude tmux session in cwd reusing the on-disk settings; return pane_target.
+
+    signal_dir: where the generated hooks touch ready/done — defaults to cwd, but an agent
+    spawned into a secondary fixed root (task 169) still signals the PRIMARY root's dir.
+    """
+    effective_signal_dir = signal_dir or cwd
     claude_cmd = f"claude --settings '{settings_file}' --add-dir '{cwd}'"
     if model:
         claude_cmd += f" --model '{model}'"
@@ -839,15 +912,16 @@ def _spawnClaudeInTmux(session_name: str, cwd: str, settings_file: str, model: s
             break
         time.sleep(1)
     terminal_spawnIfNeeded(session_name, maximize="tall")
-    _waitForSignalFile(cwd, "ready", timeout=60)
+    _waitForSignalFile(effective_signal_dir, "ready", timeout=60)
     tmux_waitForClaudeReadiness(pane_target, timeout=30)
-    _primeSpawnedAgent(pane_target, cwd, ponytail)
+    _primeSpawnedAgent(pane_target, effective_signal_dir, ponytail)
     return pane_target
 
 
 def _executeSpawn(signal_dir: str, pane_target: str, cwd: str,
                   session_name: str, agent_index: int, payload: str,
-                  captured: list, model: str = "", ponytail: str = "") -> str:
+                  captured: list, model: str = "", ponytail: str = "",
+                  settings_file: str = "") -> str:
     """End the current agent (optionally dropping its JSONL), then launch a fresh agent in the tmpdir.
 
     The previous agent is torn down deterministically — /exit, wait for its tmux
@@ -867,11 +941,13 @@ def _executeSpawn(signal_dir: str, pane_target: str, cwd: str,
     tmux_killSession(old_session)
     for name in ("ready", "done", "jsonl_path.txt"):
         _clearSignalFile(signal_dir, name)
-    return _spawnClaudeInTmux(f"{session_name}-a{agent_index}", cwd, str(Path(cwd) / "settings.json"), model, ponytail)
+    settings = settings_file or str(Path(cwd) / "settings.json")
+    return _spawnClaudeInTmux(f"{session_name}-a{agent_index}", cwd, settings, model, ponytail, signal_dir=signal_dir)
 
 
 def _executeSpawnConcurrent(signal_dir: str, cwd: str, session_name: str,
-                            agent_index: int, model: str = "", ponytail: str = "") -> str:
+                            agent_index: int, model: str = "", ponytail: str = "",
+                            settings_file: str = "") -> str:
     """Launch an additional Claude agent in its own tmux session without ending
     any existing agent. Returns the new agent's pane_target.
 
@@ -884,9 +960,26 @@ def _executeSpawnConcurrent(signal_dir: str, cwd: str, session_name: str,
     # current agent — both agents stay alive.
     for signal_name in ("ready", "done"):
         _clearSignalFile(signal_dir, signal_name)
+    settings = settings_file or str(Path(cwd) / "settings.json")
     return _spawnClaudeInTmux(
-        f"{session_name}-a{agent_index}", cwd, str(Path(cwd) / "settings.json"), model, ponytail
+        f"{session_name}-a{agent_index}", cwd, settings, model, ponytail, signal_dir=signal_dir
     )
+
+
+def _resolveSpawnRoot(step: dict, roots_by_name: dict, default_cwd: str) -> str:
+    """The working dir for a spawn step: its declared root, or default_cwd without one.
+
+    An undeclared root name fails loudly — a silent fallback would run the session in
+    the wrong directory and poison the scenario's captures.
+    """
+    root_name = step.get("root")
+    if not root_name:
+        return default_cwd
+    if root_name not in roots_by_name:
+        raise ValueError(
+            f"run-scenario: step {step.get('step_num')} spawns into undeclared root '{root_name}'"
+        )
+    return roots_by_name[root_name]
 
 
 def runScenario_executeSteps(
@@ -899,6 +992,7 @@ def runScenario_executeSteps(
     session_name: str = "",
     model: str = "",
     ponytail: str = "",
+    roots: list = None,
 ) -> dict:
     """Execute scenario steps automatically.
 
@@ -923,6 +1017,14 @@ def runScenario_executeSteps(
     agent_panes_by_name = {"a1": pane_target}
     active_agent_name = "a1"
     agent_jsonl_by_name = {}
+    # Named fixed workspace roots (task 169): spawn steps may place an agent in one; every
+    # agent's cwd is tracked so Edit steps land in the ACTIVE agent's root. All agents share
+    # the primary root's settings.json and signal_dir.
+    roots_by_name = {}
+    for declared_root in (roots or []):
+        roots_by_name[declared_root["name"]] = str(Path(declared_root["path"]).expanduser())
+    agent_cwd_by_name = {"a1": cwd}
+    primary_settings = str(Path(cwd) / "settings.json") if cwd else ""
     # Stage snapshots outside the working tree so scenario code that walks
     # the directory (e.g. os.walk) can't corrupt earlier captures.
     snapshot_staging = tempfile.mkdtemp(prefix="step-states.") if cwd else ""
@@ -935,6 +1037,7 @@ def runScenario_executeSteps(
 
         target_agent_name = step.get("target") or active_agent_name
         current_pane = agent_panes_by_name.get(target_agent_name, pane_target)
+        current_cwd = agent_cwd_by_name.get(target_agent_name, cwd)
         active_agent_name = target_agent_name
         _PANE_TARGET_FOR_DISMISS = current_pane
 
@@ -973,10 +1076,13 @@ def runScenario_executeSteps(
 
         elif action == "spawn":
             agent_index += 1
+            spawn_cwd = _resolveSpawnRoot(step, roots_by_name, cwd)
             new_pane = _executeSpawn(
-                signal_dir, current_pane, cwd, base_session, agent_index, payload, captured, model, ponytail
+                signal_dir, current_pane, spawn_cwd, base_session, agent_index, payload, captured, model, ponytail,
+                settings_file=primary_settings,
             )
             agent_panes_by_name[active_agent_name] = new_pane
+            agent_cwd_by_name[active_agent_name] = spawn_cwd
             pane_target = new_pane
             _PANE_TARGET_FOR_DISMISS = new_pane
             _markCheckbox(progress_file, step_num)
@@ -984,9 +1090,12 @@ def runScenario_executeSteps(
         elif action == "spawnconcurrent":
             agent_index += 1
             new_agent_name = payload.strip() or f"a{agent_index}"
+            spawn_cwd = _resolveSpawnRoot(step, roots_by_name, cwd)
             agent_panes_by_name[new_agent_name] = _executeSpawnConcurrent(
-                signal_dir, cwd, base_session, agent_index, model, ponytail
+                signal_dir, spawn_cwd, base_session, agent_index, model, ponytail,
+                settings_file=primary_settings,
             )
+            agent_cwd_by_name[new_agent_name] = spawn_cwd
             active_agent_name = new_agent_name
             _PANE_TARGET_FOR_DISMISS = agent_panes_by_name[new_agent_name]
             _markCheckbox(progress_file, step_num)
@@ -1005,7 +1114,7 @@ def runScenario_executeSteps(
             _markCheckbox(progress_file, step_num)
 
         elif action == "edit":
-            _executeEdit(cwd, payload)
+            _executeEdit(current_cwd, payload)
             _markCheckbox(progress_file, step_num)
 
         elif action == "compact":
@@ -1030,6 +1139,8 @@ def runScenario_executeSteps(
 
         # Capture on-disk state after every step — gives the engine a complete
         # timeline and makes audit a simple count comparison.
+        # ponytail: snapshots capture the PRIMARY root only; extend to per-root captures
+        # when a multi-root scenario needs them (task 177).
         if cwd:
             _snapshotStep(cwd, step_num, action, payload, snapshot_staging)
             step_states.append(f"step-{step_num:03d}")
@@ -1091,6 +1202,7 @@ def runScenario_launchAndExecute(
             session_name=session_name,
             model=model,
             ponytail=ponytail,
+            roots=parsed.get("roots"),
         )
         _mark(f"executeSteps done: {json.dumps(result)}")
 
@@ -1124,7 +1236,8 @@ def runScenario_execute(
     result = runScenario_executeSteps(
         signal_dir, pane_target, progress_file,
         parsed["steps"], int(start_from),
-        cwd=parsed["cwd"],
+        cwd=parsed.get("cwd", ""),
+        roots=parsed.get("roots"),
     )
 
     if not result["completed"]:

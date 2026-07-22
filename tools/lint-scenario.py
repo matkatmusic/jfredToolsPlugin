@@ -151,6 +151,20 @@ def lintScenario_walkAgentTargets(parsed: dict) -> tuple[list[str], dict]:
     return findings, state
 
 
+def lintScenario_checkSpawnRoots(parsed: dict) -> list[str]:
+    # A spawn step's `in <root>` must name a root declared in the header (task 169) —
+    # the executor fails loudly at runtime, so catch the typo at lint time.
+    declaredNames = {root["name"] for root in parsed.get("roots", [])}
+    findings = []
+    for step in parsed["steps"]:
+        rootName = step.get("root")
+        if not rootName:
+            continue
+        if rootName not in declaredNames:
+            findings.append(f"step {step['step_num']}: spawn targets undeclared root '{rootName}'")
+    return findings
+
+
 def lintScenario_checkExitRecordPerAgent(state: dict) -> list[str]:
     findings = []
     for agentName in sorted(state["agents"]):
@@ -167,6 +181,7 @@ def lintScenario_lintFile(scenario_path: str) -> list[str]:
     findings = lintScenario_checkHeaderFields(parsed)
     findings += lintScenario_checkUnknownSteps(parsed)
     findings += lintScenario_checkWrittenStepNumbers(text)
+    findings += lintScenario_checkSpawnRoots(parsed)
     walkFindings, walkState = lintScenario_walkAgentTargets(parsed)
     findings += walkFindings
     findings += lintScenario_checkExitRecordPerAgent(walkState)

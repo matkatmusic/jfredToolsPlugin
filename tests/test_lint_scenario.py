@@ -175,3 +175,32 @@ def test_rewindDeeperThanPriorSaysIsReported(tmp_path: Path):
     findings = lint_scenario.lintScenario_lintFile(scenario_path)
     # The over-deep rewind should be reported with both counts.
     assert any("exceeds" in finding for finding in findings)
+
+
+# ── named fixed workspace roots (task 169) ───────────────────────────
+
+
+ROOTED_SPAWN_STEP_LINES = [
+    "- [ ] 1. Say: `hello`",
+    "- [ ] 2. EndCurrentAgentAndSpawnNewAgent: in work9",
+    "- [ ] 3. Say: `hi again`",
+    "- [ ] 4. Exit",
+    "- [ ] 5. Record",
+]
+
+
+def test_spawnIntoUndeclaredRootIsReported(tmp_path: Path):
+    # Scenario: a spawn step names a root the header never declared.
+    scenario_path = writeScenarioFile(tmp_path, ROOTED_SPAWN_STEP_LINES)
+    findings = lint_scenario.lintScenario_lintFile(scenario_path)
+    # The undeclared name should be reported against step 2.
+    assert any("undeclared root 'work9'" in finding for finding in findings)
+
+
+def test_spawnIntoDeclaredRootIsClean(tmp_path: Path):
+    # Scenario: the same spawn is clean once the header declares the root.
+    header_lines = DEFAULT_HEADER_LINES + ["root: work9 = /tmp/jfred-roots/w9"]
+    scenario_path = writeScenarioFile(tmp_path, ROOTED_SPAWN_STEP_LINES, header_lines)
+    findings = lint_scenario.lintScenario_lintFile(scenario_path)
+    # No root findings — anything else the walk reports is out of scope here.
+    assert not any("undeclared root" in finding for finding in findings)

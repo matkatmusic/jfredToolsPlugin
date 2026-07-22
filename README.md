@@ -53,6 +53,33 @@ This applies to clean-environment captures too: a capture run under a fresh
 `CLAUDE_CONFIG_DIR` must still install the context-mode plugin before
 `/run-scenario` is invoked, or the MCP steps above will not be executable.
 
+## Named fixed workspace roots (task 169)
+
+By default `/run-scenario` runs each scenario in a fresh random temp directory.
+A scenario may instead declare named fixed roots in its header (before `---`):
+
+```
+session: s88-two-roots
+root: work1 = /tmp/jfred-scenario-roots/s88-a
+root: work2 = /tmp/jfred-scenario-roots/s88-b
+```
+
+The FIRST declared root is primary: the initial agent's cwd and the shared
+signal dir. Spawn steps place an agent in a declared root with a trailing
+`in <name>`:
+
+```
+- [ ] 7. EndCurrentAgentAndSpawnNewAgent: in work2
+- [ ] 9. SpawnNewAgent: bob in work2
+```
+
+Roots are created FRESH at launch and reused (never reset) across every
+session of the run, so a multi-session scenario runs session A in root 1 and
+session B in root 2 deterministically. Safety: an existing non-empty directory
+is only reset when it carries the `.run-scenario-root` marker from a previous
+run. Edit steps apply in the ACTIVE agent's root; `.step_states/` snapshots
+capture the primary root only.
+
 ## Monitor spawned panes for permission prompts
 
 The backgrounded agent tmux panes must be watched for permission asks. The
