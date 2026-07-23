@@ -1480,3 +1480,42 @@ def test_resolveSpawnRoot_resolves_declared_and_rejects_unknown():
     assert _resolveSpawnRoot({"root": None, "step_num": 3}, roots_by_name, "/tmp/w1") == "/tmp/w1"
     with pytest.raises(ValueError):
         _resolveSpawnRoot({"root": "nope", "step_num": 4}, roots_by_name, "/tmp/w1")
+
+
+def test_createDeclaredRoots_nested_root_keeps_parent_content(tmp_path: Path):
+    # Task 179: `root: tests = <proj>/tests` — the nested root must NOT be wiped,
+    # marked, or re-seeded; the parent's seeded tests/conftest.py must survive.
+    from common.scripts.run_scenario_lib import runScenario_createDeclaredRoots
+
+    proj = tmp_path / "scen89-proj"
+    declared = [
+        {"name": "proj", "path": str(proj)},
+        {"name": "tests", "path": str(proj / "tests")},
+    ]
+
+    primary = runScenario_createDeclaredRoots(declared)
+
+    assert primary == str(proj)
+    # Parent seeding intact: conftest.py inside tests/ survives, no nested junk.
+    assert (proj / "tests" / "conftest.py").is_file()
+    assert not (proj / "tests" / "tests").exists()
+    assert not (proj / "tests" / ".run-scenario-root").exists()
+    assert not (proj / "tests" / ".gitignore").exists()
+
+
+def test_createDeclaredRoots_sibling_root_still_created_fresh(tmp_path: Path):
+    # A non-nested extra root keeps the task-169 behavior: fresh + marker + seeded.
+    from common.scripts.run_scenario_lib import runScenario_createDeclaredRoots
+
+    alpha = tmp_path / "alpha"
+    beta = tmp_path / "beta"
+    declared = [
+        {"name": "alpha", "path": str(alpha)},
+        {"name": "beta", "path": str(beta)},
+    ]
+
+    primary = runScenario_createDeclaredRoots(declared)
+
+    assert primary == str(alpha)
+    assert (beta / ".run-scenario-root").is_file()
+    assert (beta / "tests" / "conftest.py").is_file()

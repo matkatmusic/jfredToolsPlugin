@@ -268,6 +268,28 @@ def runScenario_createFixedRoot(root_path: str) -> str:
     return str(root)
 
 
+def runScenario_createDeclaredRoots(declared_roots: list) -> str:
+    """Create every declared fixed root parent-first; return the primary (first) path.
+
+    A root nested under an earlier declared root (task 179, e.g. `<proj>/tests`)
+    belongs to the PARENT's tree: the parent was just created fresh, so only
+    ensure the dir exists — no wipe, no marker, no seeding (a wipe would clobber
+    the parent's seeded tests/, and seeding would plant tests/tests/ + a nested
+    .gitignore inside the parent's tracked content). Detection is textual, so a
+    nested root must be declared with the same path prefix as its parent.
+    """
+    primary = runScenario_createFixedRoot(declared_roots[0]["path"])
+    created_roots = [Path(primary)]
+    for extra_root in declared_roots[1:]:
+        extra_path = Path(extra_root["path"]).expanduser()
+        if any(parent in extra_path.parents for parent in created_roots):
+            extra_path.mkdir(parents=True, exist_ok=True)
+            created_roots.append(extra_path)
+        else:
+            created_roots.append(Path(runScenario_createFixedRoot(str(extra_path))))
+    return primary
+
+
 def runScenario_launch(
     session_name: str,
     plugin_root: str,
@@ -290,9 +312,7 @@ def runScenario_launch(
     # No declaration → a fresh random tmpdir, exactly as before.
     declared_roots = runScenario_parseScenario(scenario_file).get("roots") or []
     if declared_roots:
-        tmpdir = runScenario_createFixedRoot(declared_roots[0]["path"])
-        for extra_root in declared_roots[1:]:
-            runScenario_createFixedRoot(extra_root["path"])
+        tmpdir = runScenario_createDeclaredRoots(declared_roots)
     else:
         tmpdir = tempfile.mkdtemp(prefix="run-scenario.")
         _seedWorkspaceRoot(tmpdir)
