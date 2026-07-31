@@ -87,6 +87,11 @@ def sync_world(tmp_path: Path, monkeypatch):
     (proj_dir / f"{uuid}.jsonl").write_text('{"type":"session"}\n')
     (proj_dir / uuid / "subagents").mkdir(parents=True)
     (proj_dir / uuid / "subagents" / "agent-a.jsonl").write_text("{}\n")
+    wf_dir = proj_dir / uuid / "subagents" / "workflows" / "wf_52f18d09-6e1"
+    wf_dir.mkdir(parents=True)
+    (wf_dir / "agent-a4ebc2ca4.jsonl").write_text("{}\n")
+    (wf_dir / "agent-a4ebc2ca4.meta.json").write_text('{"agentType":"workflow-subagent"}\n')
+    (wf_dir / "journal.jsonl").write_text("{}\n")
     fh_dir = fake_fh / uuid
     fh_dir.mkdir(parents=True)
     (fh_dir / "abc123@v1").write_text("snapshot\n")
@@ -120,6 +125,17 @@ def test_run_sync_creates_backup_and_gitignore(sync_world):
     logs = list((repo / ".claude-data" / ".sync-logs").glob("sync-*.log"))
     assert len(logs) == 1
     assert R._read_pointer() == [str(logs[0])]
+
+
+def test_run_sync_copies_workflow_subagent_sessions(sync_world):
+    repo = sync_world["repo"]
+    _run_sync("cwd", None, str(repo), dry_run=False)
+
+    wf = (repo / ".claude-data" / "projects" / sync_world["encoded"] / sync_world["uuid"]
+          / "subagents" / "workflows" / "wf_52f18d09-6e1")
+    assert (wf / "agent-a4ebc2ca4.jsonl").is_file()
+    assert (wf / "agent-a4ebc2ca4.meta.json").is_file()
+    assert (wf / "journal.jsonl").is_file()
 
 
 def test_run_sync_twice_second_is_noop(sync_world):
