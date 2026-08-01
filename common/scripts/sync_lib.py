@@ -21,6 +21,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from typing import TypeGuard
 
 from external.claude_plugin_lib.hookjson_lib import hookjson_checkRequirements, hookjson_emitBlock
 from external.claude_plugin_lib.util_lib import _util_resolvePluginRoot
@@ -90,7 +91,7 @@ def _build_all_jobs(arg: str | None) -> tuple[list[tuple], str | None]:
     return [(dest_root, jobs)], None
 
 
-def _is_list_file(arg: str | None) -> bool:
+def _is_list_file(arg: str | None) -> TypeGuard[str]:
     return bool(arg) and arg.endswith(".txt") and Path(arg).is_file()
 
 
