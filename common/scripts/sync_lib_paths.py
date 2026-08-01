@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from bisect import bisect_left
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +42,41 @@ def _resolve_session_uuids(project_dir: Path) -> list[str]:
     if not project_dir.is_dir():
         return []
     return sorted(p.stem for p in project_dir.glob("*.jsonl"))
+
+
+def _list_project_dir_names(projects_root: Path) -> list[str]:
+    """Sorted names of every session dir under ~/.claude/projects/."""
+    if not projects_root.is_dir():
+        return []
+    return sorted(entry.name for entry in projects_root.iterdir() if entry.is_dir())
+
+
+def _find_project_dirs_with_prefix(sorted_names: list[str], encoded_prefix: str) -> list[str]:
+    """Project-dir names starting with `encoded_prefix`, itself included.
+
+    Encoding is per-character, so a path's encoding always prefixes its
+    descendants' — subfolder sessions are found even once the subfolder is gone
+    from disk. Same-prefixed siblings match too; that over-capture is accepted
+    because no string test can tell them from a deleted subfolder.
+    """
+    matches: list[str] = []
+    for name in sorted_names[bisect_left(sorted_names, encoded_prefix):]:
+        if not name.startswith(encoded_prefix):
+            break
+        matches.append(name)
+    return matches
+
+
+def _dedupe_jobs(jobs: list[tuple]) -> list[tuple]:
+    """Drop repeat job labels, preserving first-seen order."""
+    seen: set[str] = set()
+    unique: list[tuple] = []
+    for job in jobs:
+        if job[0] in seen:
+            continue
+        seen.add(job[0])
+        unique.append(job)
+    return unique
 
 
 # Flags that consume the following token as a path argument.

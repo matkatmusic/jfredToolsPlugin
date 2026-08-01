@@ -96,10 +96,23 @@ def sync_world(tmp_path: Path, monkeypatch):
     fh_dir.mkdir(parents=True)
     (fh_dir / "abc123@v1").write_text("snapshot\n")
 
+    # A subfolder session whose directory no longer exists on disk (a removed
+    # worktree): only the encoded project dir survives to be discovered.
+    sub_uuid = "22222222-2222-2222-2222-222222222222"
+    sub_encoded = _derive_project_dir(str(repo.resolve() / "gone" / "worktree"))
+    sub_dir = fake_projects / sub_encoded
+    sub_dir.mkdir(parents=True)
+    (sub_dir / f"{sub_uuid}.jsonl").write_text('{"type":"session"}\n')
+    (fake_fh / sub_uuid).mkdir(parents=True)
+    (fake_fh / sub_uuid / "def456@v1").write_text("snapshot\n")
+
     monkeypatch.setattr(S, "_projects_root", lambda: fake_projects)
     monkeypatch.setattr(S, "_file_history_root", lambda: fake_fh)
     monkeypatch.setattr(R, "_UNDO_POINTER", tmp_path / ".claude-sync-last")
-    return {"repo": repo, "uuid": uuid, "encoded": encoded, "tmp": tmp_path}
+    return {
+        "repo": repo, "uuid": uuid, "encoded": encoded, "tmp": tmp_path,
+        "sub_uuid": sub_uuid, "sub_encoded": sub_encoded,
+    }
 
 
 def test_run_sync_dry_run_no_writes(sync_world):
@@ -136,6 +149,35 @@ def test_run_sync_copies_workflow_subagent_sessions(sync_world):
     assert (wf / "agent-a4ebc2ca4.jsonl").is_file()
     assert (wf / "agent-a4ebc2ca4.meta.json").is_file()
     assert (wf / "journal.jsonl").is_file()
+
+
+def test_run_sync_captures_sessions_for_subfolder_missing_from_disk(sync_world):
+    repo = sync_world["repo"]
+    _run_sync("cwd", None, str(repo), dry_run=False)
+
+    sess = (repo / ".claude-data" / "projects" / sync_world["sub_encoded"]
+            / f"{sync_world['sub_uuid']}.jsonl")
+    assert sess.is_file()
+
+
+def test_run_sync_captures_file_history_for_subfolder_sessions(sync_world):
+    repo = sync_world["repo"]
+    _run_sync("cwd", None, str(repo), dry_run=False)
+
+    snap = repo / ".claude-data" / "file-history" / sync_world["sub_uuid"] / "def456@v1"
+    assert snap.is_file()
+
+
+def test_build_list_jobs_deduplicates_parent_and_child_entries(sync_world):
+    repo = sync_world["repo"]
+    list_file = sync_world["tmp"] / "repos.txt"
+    list_file.write_text(f"{repo}\n{repo}/gone/worktree\n")
+
+    groups, error = _build_jobs("only", str(list_file), str(sync_world["tmp"]))
+
+    assert error is None
+    labels = [job[0] for job in groups[0][1]]
+    assert len(labels) == len(set(labels))
 
 
 def test_run_sync_twice_second_is_noop(sync_world):

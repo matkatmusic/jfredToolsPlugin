@@ -25,9 +25,12 @@ from pathlib import Path
 from external.claude_plugin_lib.hookjson_lib import hookjson_checkRequirements, hookjson_emitBlock
 from external.claude_plugin_lib.util_lib import _util_resolvePluginRoot
 from common.scripts.sync_lib_paths import (
+    _dedupe_jobs,
     _derive_project_dir,
     _ensure_gitignore,
     _file_history_root,
+    _find_project_dirs_with_prefix,
+    _list_project_dir_names,
     _parse_args,
     _projects_root,
     _read_repo_list,
@@ -101,6 +104,7 @@ def _build_list_jobs(list_path: Path, payload_cwd: str) -> tuple[list[tuple], st
     jobs: list[tuple] = []
     for repo in repos:
         jobs.extend(_repo_jobs(repo, dest_root))
+    jobs = _dedupe_jobs(jobs)
     if not jobs:
         return [], "no recorded sessions found for the listed repos"
     return [(dest_root, jobs)], None
@@ -121,15 +125,21 @@ def _build_repo_group(repo: str) -> tuple | None:
 
 
 def _repo_jobs(repo: str, dest_root: Path) -> list[tuple]:
-    """Build (label, src, dest) jobs for one repo's sessions + file-history."""
+    """Build (label, src, dest) jobs for a repo, its subfolder sessions, and file-history."""
     encoded = _derive_project_dir(str(Path(repo).resolve()))
+    project_names = _list_project_dir_names(_projects_root())
+    jobs: list[tuple] = []
+    for name in _find_project_dirs_with_prefix(project_names, encoded):
+        _append_project_jobs(jobs, name, dest_root)
+    return _dedupe_jobs(jobs)
+
+
+def _append_project_jobs(jobs: list[tuple], encoded: str, dest_root: Path) -> None:
+    """Add one project dir's session job plus a file-history job per session UUID."""
     src_project = _projects_root() / encoded
-    if not src_project.is_dir():
-        return []
-    jobs = [(f"projects/{encoded}", src_project, dest_root / "projects" / encoded)]
+    jobs.append((f"projects/{encoded}", src_project, dest_root / "projects" / encoded))
     for uuid in _resolve_session_uuids(src_project):
         _append_history_job(jobs, uuid, dest_root)
-    return jobs
 
 
 def _append_history_job(jobs: list[tuple], uuid: str, dest_root: Path) -> None:

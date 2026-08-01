@@ -4,9 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from common.scripts.sync_lib_paths import (
+    _dedupe_jobs,
     _derive_project_dir,
     _ensure_gitignore,
+    _find_project_dirs_with_prefix,
     _is_repo_list_entry,
+    _list_project_dir_names,
     _parse_args,
     _read_repo_list,
     _resolve_session_uuids,
@@ -56,6 +59,57 @@ def test_resolve_session_uuids_lists_jsonl_stems(tmp_path: Path):
 
 def test_resolve_session_uuids_missing_dir(tmp_path: Path):
     assert _resolve_session_uuids(tmp_path / "nope") == []
+
+
+# ── _list_project_dir_names ───────────────────────────────────────────
+def test_list_project_dir_names_returns_sorted_dirs_only(tmp_path: Path):
+    # Only directories are session dirs; loose files in the projects root are not.
+    (tmp_path / "-b-repo").mkdir()
+    (tmp_path / "-a-repo").mkdir()
+    (tmp_path / "notes.txt").write_text("x")
+    assert _list_project_dir_names(tmp_path) == ["-a-repo", "-b-repo"]
+
+
+def test_list_project_dir_names_missing_root(tmp_path: Path):
+    assert _list_project_dir_names(tmp_path / "nope") == []
+
+
+# ── _find_project_dirs_with_prefix ────────────────────────────────────
+def test_find_project_dirs_with_prefix_includes_exact_match():
+    assert _find_project_dirs_with_prefix(["-a-b"], "-a-b") == ["-a-b"]
+
+
+def test_find_project_dirs_with_prefix_includes_subfolder_dirs():
+    # A subfolder's encoded name always starts with its parent's encoded name.
+    names = ["-a-b", "-a-b-sub", "-a-b-sub-deep"]
+    assert _find_project_dirs_with_prefix(names, "-a-b") == names
+
+
+def test_find_project_dirs_with_prefix_includes_sibling_sharing_prefix():
+    # Accepted over-capture: `/a/jot/backup` and `/a/jot-backup` encode identically,
+    # so a sibling cannot be told from a subfolder that is gone from disk.
+    names = ["-a-jot", "-a-jot-backup", "-a-jotVerifySequence"]
+    assert _find_project_dirs_with_prefix(names, "-a-jot") == names
+
+
+def test_find_project_dirs_with_prefix_excludes_names_outside_the_block():
+    # Names sorting before and after the prefix block are both left out.
+    names = ["-a-a", "-a-b", "-a-b-sub", "-a-c"]
+    assert _find_project_dirs_with_prefix(names, "-a-b") == ["-a-b", "-a-b-sub"]
+
+
+def test_find_project_dirs_with_prefix_no_match():
+    assert _find_project_dirs_with_prefix(["-a-a", "-a-c"], "-a-b") == []
+
+
+# ── _dedupe_jobs ──────────────────────────────────────────────────────
+def test_dedupe_jobs_keeps_first_occurrence():
+    # A parent and child list entry both sweep in the same project dir; the
+    # duplicate job must collapse without reordering the survivors.
+    first = ("projects/-a-b", Path("/src/b"), Path("/dest/b"))
+    second = ("projects/-a-c", Path("/src/c"), Path("/dest/c"))
+    duplicate = ("projects/-a-b", Path("/other/b"), Path("/other/dest/b"))
+    assert _dedupe_jobs([first, second, duplicate]) == [first, second]
 
 
 # ── _parse_args ───────────────────────────────────────────────────────
